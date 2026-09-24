@@ -8,41 +8,59 @@
 //
 
 import Foundation
+import os
+
+private let keychainLog = Logger(subsystem: "lv.zzdats.KeychainWrapperPackage", category: "keychain")
 
 final public class KeychainManager: Sendable {
     
     public static let shared = KeychainManager()
+
+    private func hardenedForInsert(_ query: CFDictionary) -> CFDictionary {
+        guard var attributes = query as? [String: Any] else {
+            return query
+        }
+        
+        let hasAccessControl = attributes[kSecAttrAccessControl as String] != nil
+        let hasAccessibility = attributes[kSecAttrAccessible as String] != nil
+        
+        if !hasAccessControl && !hasAccessibility {
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        }
+        
+        if attributes[kSecAttrSynchronizable as String] == nil {
+            attributes[kSecAttrSynchronizable as String] = false
+        }
+        
+        return attributes as CFDictionary
+    }
+    
+    private func log(_ status: OSStatus, operation: StaticString) {
+        if status == errSecSuccess {
+            keychainLog.debug("Keychain \(operation, privacy: .public) succeeded.")
+        } else {
+            keychainLog.error("Keychain \(operation, privacy: .public) failed with OSStatus \(status, privacy: .public).")
+        }
+    }
     
     public func addItemToKeychain(query: CFDictionary, completion: @escaping (Bool) -> Void) {
-        SecItemDelete(query as CFDictionary)  // Delete any existing data
-        let status = SecItemAdd(query as CFDictionary, nil)
-        if status == errSecSuccess {
-            print("information securely stored.")
-        } else {
-            print("Failed to information securely.")
-        }
+        SecItemDelete(query)
+        let status = SecItemAdd(hardenedForInsert(query), nil)
+        log(status, operation: "add")
         completion(status == errSecSuccess)
     }
     
     
     public func addItemToKeychainAsync(query: CFDictionary) async throws -> Bool {
-        SecItemDelete(query as CFDictionary)  // Delete any existing data
-        let status = SecItemAdd(query as CFDictionary, nil)
-        if status == errSecSuccess {
-            print("information securely stored.")
-        } else {
-            print("Failed to information securely.")
-        }
+        SecItemDelete(query)
+        let status = SecItemAdd(hardenedForInsert(query), nil)
+        log(status, operation: "add")
         return(status == errSecSuccess)
     }
     
     public func updateKeychainItem(query: CFDictionary, updateField: CFDictionary, completion: @escaping (Bool) -> Void) {
         let status = SecItemUpdate(query, updateField)
-        if status == errSecSuccess {
-            print("Passcode updated securely.")
-        } else {
-            print("Failed to update login information securely.")
-        }
+        log(status, operation: "update")
         completion(status == errSecSuccess)
     }
     
